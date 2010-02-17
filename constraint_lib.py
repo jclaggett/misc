@@ -1,15 +1,7 @@
-class Constraint(object):
-    def apply(self, token):
-        return (True, True)
-
-    def match(self, tokens):
-        for token in tokens:
-            matched,continued = self.apply(token)
-            if not continued: break
-        return matched
+from constraint import Constraint
 
 class Null(Constraint):
-    def apply(self, token):
+    def first(self):
         return (False, False)
 
 class Single(Constraint):
@@ -111,9 +103,7 @@ class TestBasic(unittest.TestCase):
     def testSequence(self):
         c = Sequence(All(Single(),Member(':')), All(Single(),Member('-')), All(Single(),Member(')')))
         self.assertTrue(c.match(':-)'))
-        c = Sequence(All(Single(),Member(':')), All(Single(),Member('-')), All(Single(),Member(')')))
         self.assertFalse(c.match(':-'))
-        c = Sequence(All(Single(),Member(':')), All(Single(),Member('-')), All(Single(),Member(')')))
         self.assertFalse(c.match(';-)'))
 
 if __name__ == '__main__':
