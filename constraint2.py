@@ -1,13 +1,10 @@
 from functools import partial
 
-# Basic terms.
-Continue = 1
-Matching = 2
-
-Invalid = 0
-Incomplete = 1
-Complete = 2
-Satisfied = 3
+# Basic Flags.
+Invalid   = 0 #00
+Continue  = 1 #01
+Matching  = 2 #10
+Satisfied = 3 #11
 
 def Any():
     'Matches anything.'
@@ -22,7 +19,7 @@ def Null():
     def init():
         def apply(token):
             return Invalid
-        return (apply, Complete)
+        return (apply, Matching)
     return init
 
 def Member(*elements):
@@ -41,33 +38,27 @@ def MemberRange(min, max):
         return (apply, Satisfied)
     return init
 
-def Unique():
-    'Matches so long as all tokens are unique.'
-
+def Unique(min=1, max=1):
+    'Matches tokens so long as each kind follows a Range constraint.'
     def init():
         tracker = dict()
-
+        range = Range(min, max)
         def apply(token):
-            if tracker.has_key(token):
-                return Invalid
-            tracker[token] = True
-            return Satisfied
-
-        return (apply, Satisfied)
-
+            return tracker.getdefault(token, range())(token)
+        return (apply, range()(None))
     return init
 
-def Range(self, min=0, max=None):
+def Range(min=0, max=None):
     'Matches count tokens where: min <= count <= max.'
     def init():
         self = Bunch(count=-1)
         def apply(token):
             self.count += 1
             if self.count < min:
-                return Incomplete
+                return Continue
             if max != None:
                 if self.count == max:
-                    return Complete
+                    return Matching
                 if self.count > max:
                     return Invalid
             return Satisfied
@@ -75,18 +66,18 @@ def Range(self, min=0, max=None):
         return (apply, apply(None))
     return init
 
-def Single(self):
+def Single():
     'Matches any one token.'
     def init():
-        self = Bunch(state=Complete)
+        self = Bunch(state=Matching)
         def apply(token):
             (temp, self.state) = (self.state, Invalid)
             return temp
-        return (apply, Incomplete)
+        return (apply, Continue)
     return init
 
-def Combine(*constraints):
-    'Logically combine all listed constraints.'
+def Parallel(*constraints):
+    'Apply all constraints at the same time.'
     def init():
         # Call the init function for all constraints.
         applies = []
@@ -104,6 +95,14 @@ def Combine(*constraints):
 
         return (apply, status)
     return init
+
+def Sequence(*constraints):
+    'Apply each constraint serially.'
+    pass
+
+def Any(*constraints):
+    'Apply any and all constraints.'
+    pass
 
 def Attribute(name, constraint):
     'Apply constraint to the named token attribute.'
