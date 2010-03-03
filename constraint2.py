@@ -1,139 +1,156 @@
 from functools import partial
 
-# Basic Flags.
-Invalid   = 0 #00
-Continue  = 1 #01
-Matching  = 2 #10
-Satisfied = 3 #11
-
-def Any():
-    'Matches anything.'
-    def init():
-        def apply(token):
-            return Satisfied
-        return (apply, Satisfied)
-    return init
+# Verdict Flags.
+Invalid   = 0 # 00 # Not matching and don't continue.
+Continue  = 1 # 01 # Not matching but continue.
+Matching  = 2 # 10 # Matching and don't continue.
+Satisfied = 3 # 11 # Matching and continue.
 
 def Null():
     'Matches nothing.'
     def init():
-        def apply(token):
-            return Invalid
-        return (apply, Matching)
-    return init
+        return None, Matching
+    def apply(state, token):
+        return state, Invalid
+    return Bunch(init=init, apply=apply)
 
-def Member(*elements):
+def Any():
+    'Matches anything.'
+    def init():
+        return None, Satisfied
+    def apply(state, token):
+        return state, Satisfied
+    return Bunch(init=init, apply=apply)
+
+def Member(elements):
     'Matches tokens that are in elements.'
     def init():
-        def apply(token):
-            return Satisfied if token in elements else Invalid
-        return (apply, Satisfied)
-    return init
+        return None, Satisfied
+    def apply(state, token):
+        return state, Satisfied if token in elements else Invalid
+    return Bunch(init=init, apply=apply)
 
 def MemberRange(min, max):
     'Matches tokens where: min <= token <= max.'
     def init():
-        def apply(token):
-            return Satisfied if min <= token <= max else Invalid
-        return (apply, Satisfied)
-    return init
-
-def Unique(min=1, max=1):
-    'Matches tokens so long as each kind follows a Range constraint.'
-    def init():
-        tracker = dict()
-        range = Range(min, max)
-        def apply(token):
-            return tracker.getdefault(token, range())(token)
-        return (apply, range()(None))
-    return init
+        return None, Satisfied
+    def apply(state, token):
+        return state, Satisfied if min <= token <= max else Invalid
+    return Bunch(init=init, apply=apply)
 
 def Range(min=0, max=None):
     'Matches count tokens where: min <= count <= max.'
     def init():
-        self = Bunch(count=-1)
-        def apply(token):
-            self.count += 1
-            if self.count < min:
-                return Continue
-            if max != None:
-                if self.count == max:
-                    return Matching
-                if self.count > max:
-                    return Invalid
-            return Satisfied
+        state = Bunch(count=-1)
+        verdict = apply(None)
+        return state, verdict
 
-        return (apply, apply(None))
-    return init
+    def apply(state, token):
+        state.count += 1
+        verdict = Satisfied
+        if state.count < min:
+            verdict = Continue
+        elif max != None:
+            if self.count == max:
+                verdict = Matching
+            elif self.count > max:
+                verdict = Invalid
+        return state, verdict
+
+    return Bunch(init=init, apply=apply)
+
+def Unique(min=1, max=1):
+    'Matches tokens so long as each kind follows a Range constraint.'
+    def init():
+        range = Range(min, max)
+        starting_state, verdict = range.init()
+        state = Bunch(
+            tokens=dict(),
+            starting_state=starting_state,
+            apply=range.apply)
+        return state, verdict
+
+    def apply(state, token):
+        state.tokens[token], verdict = state.apply(
+            state.tokens.get(token, state.starting_state), token)
+        return state, verdict
+
+    return Bunch(init=init, apply=apply)
 
 def Single():
     'Matches any one token.'
     def init():
-        self = Bunch(state=Matching)
-        def apply(token):
-            (temp, self.state) = (self.state, Invalid)
-            return temp
-        return (apply, Continue)
-    return init
+        return Bunch(toggle=Matching), Continue
 
-def Parallel(*constraints):
+    def apply(state, token):
+        verdict, state.toggle = state.toggle, Invalid
+        return state, verdict
+
+    return Bunch(init=init, apply=apply)
+
+def And(*constraints):
     'Apply all constraints at the same time.'
     def init():
-        # Call the init function for all constraints.
-        applies = []
-        status = Satisfied
+        state = []
+        final_verdict = Satisfied
         for constraint in constraints:
-            apply, substatus = constraint()
-            applies.append(apply)
-            status &= substatus
+            # Wrap constraints so their states are handled cleanly.
+            apply, verdict = wrap(constraint)
+            state.append(apply)
+            final_verdict &= verdict
+        return state, final_verdict
 
-        def apply(token):
-            status = Satisfied
-            for constraint in constraints:
-                status &= constraint(token)
-            return status
+    def apply(state, token):
+        verdict = Satisfied
+        for apply in state:
+            verdict &= apply(token)
+        return state, verdict
 
-        return (apply, status)
-    return init
+    return Bunch(init=init, apply=apply)
 
 def Sequence(*constraints):
     'Apply each constraint serially.'
     pass
 
-def Any(*constraints):
+def Parallel(*constraints):
     'Apply any and all constraints.'
     pass
 
 def Attribute(name, constraint):
     'Apply constraint to the named token attribute.'
     def init():
-        constraint_apply, status = constraint()
-        def apply(token):
-            return constraint_apply(getattr(token, name))
-        return (apply, status)
-    return init
-
-# OR...
-Single = partial(Range, min=1, max=1)
+        return wrap(constraint)
+    def apply(state, token):
+        return state, state(getattr(token, name))
+    return Bunch(init=init, apply=apply)
 
 def match(constraint, tokens):
-    apply, status = constraint() 
+    apply, verdict = wrap(constraint) 
 
     for token in tokens:
-        if not status & Continue:
-            # The last status indicated no continue so this
-            # token is outside of the spec.
-            status = Invalid
+        if not verdict & Continue:
+            # The previous verdict indicated no continue so this
+            # token stream can never match.
+            verdict = Invalid
             break
 
-        status = apply(token)
+        verdict = apply(token)
 
-    return status & Matching and True
+    return bool(verdict & Matching)
 
-# Helper class to create mutable state. Javascript has this for free.
-class Bunch(object):
+def wrap(constraint):
+    state, verdict = constraint.init()
+    wrapped = Bunch(state=state)
+    def wrapper(token):
+        wrapped.state, verdict = constraint.apply(wrapped.state, token)
+        return verdict
+    return wrapper, verdict
+
+# Helper class to create mutable state.
+class Bunch(dict):
     def __init__(self, **kwds):
-        self.__dict__.update(kwds)
+        self.update(kwds)
+        self.__dict__ = self
     __call__ = __init__
 
 # Unit Testing
@@ -144,37 +161,32 @@ class TestBasic(unittest.TestCase):
     def setUp(self):
         pass
 
+    def match(self, constraint, tokens):
+        return self.assertTrue(match(constraint, tokens))
+
+    def nomatch(self, constraint, tokens):
+        return self.assertFalse(match(constraint, tokens))
+
     def testNull(self):
-        self.assertTrue(match(
-            Null(),
-            []))
+        self.match( Null(), [] )
+        self.nomatch( Null(), [1] )
 
-        self.assertFalse(match(
-            Null(),
-            [1]))
-        
+    def testAny(self):
+        self.match( Any(), [] )
+        self.match( Any(), [1, 2, 3] )
+        self.match( Any(), [1, 2, 3] * 3 )
+        self.match( Any(), range(100) )
+        self.match( Any(), 'abcdef' )
+
     def testMember(self):
-        self.assertTrue(
-            match(
-                Member(*range(10)),
-                range(10)))
-
-        self.assertFalse(
-            match(
-                Member(*range(9)),
-                range(10)))
+        nine, ten = range(9), range(10)
+        self.match(Member(ten), nine)
+        self.nomatch(Member(nine), ten)
 
     def testAttribute(self):
         tokens = [Bunch(x=1,y=2,z=3) for i in range(2)]
-        result = match(
-            Attribute('x',Member(1)),
-            tokens)
-        self.assertTrue(result)
-
-        result = match(
-            Attribute('y',Member(1)),
-            tokens)
-        self.assertFalse(result)
+        self.match( Attribute('x', Member([1])), tokens)
+        self.nomatch( Attribute('y', Member([1])), tokens)
 
 if __name__ == '__main__':
     unittest.main()
