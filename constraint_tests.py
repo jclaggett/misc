@@ -3,7 +3,7 @@ import unittest
 from pdb import set_trace as D
 from constraint import *
 
-class TestBasic(unittest.TestCase):
+class ConstraintTestCase(unittest.TestCase):
     def setUp(self):
         pass
 
@@ -14,6 +14,32 @@ class TestBasic(unittest.TestCase):
 
     def nomatch(self, constraint, tokens):
         return self.assertFalse(match(constraint, tokens))
+
+class TestExamples(ConstraintTestCase):
+    def testCompoundExamples(self):
+        c = And(Ascending(), Unique())
+        good = 'abefgz'
+        bad = 'aaaabcdefg'
+        self.match(c, good)
+        self.nomatch(c, bad)
+
+    def testName(self):
+        _alpha = Or(Member('_'), MemberRange('a','z'), MemberRange('A','Z'))
+        _alpha_num = Or(_alpha, MemberRange('0','9'))
+        first_char = And(Single(), _alpha)
+        c = Group(first_char, _alpha_num, meta=Sequence(2))
+
+        self.match(c, '_test')
+        self.match(c, 'Blah')
+        self.match(c, 'bLAH')
+        self.match(c, 'a1')
+        self.match(c, '_B_2_23')
+
+        self.match(c, '12C') # Broken Example.
+        self.nomatch(c, '#$asdf')
+        self.nomatch(c, 'cat!')
+
+class TestBasic(ConstraintTestCase):
 
     def testNull(self):
         self.match( Null(), [] )
@@ -51,6 +77,20 @@ class TestBasic(unittest.TestCase):
         self.match(c, '11')
         self.match(c, '111')
         self.match(c, '1111')
+
+    def testUnique(self):
+        c = Unique()
+        good = 'abcdefghijklmno9231'
+        bad = 'abca'
+        self.match(c, good)
+        self.nomatch(c, bad)
+
+    def testSequence(self):
+        c = Sequence(0,9)
+        self.nomatch(c, range(0,8))
+        self.match(c, range(0,9))
+        self.nomatch(c, range(0,9,2))
+        self.nomatch(c, range(10))
 
     def testAnd(self):
         c = And(Null())
@@ -95,15 +135,27 @@ class TestBasic(unittest.TestCase):
         phone = Group(areacode, dashes)
         self.match(phone, '123-456-7890')
 
+    def testAscending(self):
+        good = [1,2,2,3,3,4,5,6,7]
+        bad = [1,2,3,0]
+        self.match(Ascending(), good)
+        self.nomatch(Ascending(), bad)
+
+        good = 'aaaabcdefg'
+        bad = 'xyza'
+        self.match(Ascending(), good)
+        self.nomatch(Ascending(), bad)
+
     def testAttribute(self):
-        tokens = [Bunch(x=1,y=2,z=3) for i in range(2)]
-        self.match( Attribute('x', Member([1])), tokens)
-        self.nomatch( Attribute('y', Member([1])), tokens)
+        from fractions import Fraction as F
+        c = Attribute('denominator', Member([1]))
+        self.match(c, [1,2,34,53,2])
+        self.nomatch(c, [F(1,2), F(3,4), F(7,8)])
 
     def testKey(self):
-        tokens = [Bunch(x=1,y=2,z=3) for i in range(2)]
-        self.match( Attribute('x', Member([1])), tokens)
-        self.nomatch( Attribute('y', Member([1])), tokens)
+        c = Key('x', Member([True]))
+        self.match(c, [dict(x=True)])
+        self.nomatch(c, [dict(x=False)])
 
 if __name__ == '__main__':
     unittest.main()
