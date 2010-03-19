@@ -4,13 +4,6 @@ Continue  = 1 # 01 # Not matching but continue.
 Matching  = 2 # 10 # Matching but don't continue.
 Satisfied = 3 # 11 # Matching and continue.
 
-# Helper class to create mutable state.
-class Bunch(dict):
-    def __init__(self, **kwds):
-        self.update(kwds)
-        self.__dict__ = self
-    __call__ = __init__
-
 # Utility functions that work with constraints.
 def match(constraint, tokens):
     'Compare constraint against a list of tokens.'
@@ -31,9 +24,9 @@ def instance(constraint):
     'Create a new instance of the constraint and manage/hide the state.'
     init, apply = constraint
     state, verdict = init()
-    wrapped = Bunch(state=state)
+    wrapped = dict(state=state)
     def wrapper(token):
-        wrapped.state, verdict = apply(wrapped.state, token)
+        wrapped['state'], verdict = apply(wrapped['state'], token)
         return verdict
     return wrapper, verdict
 
@@ -70,40 +63,99 @@ def MemberRange(min, max):
         return state, Satisfied if min <= token <= max else Invalid
     return init, apply
 
+def Single():
+    'Matches any one token.'
+    def init():
+        return Matching, Continue
+
+    def apply(state, token):
+        return Invalid, state
+
+    return init, apply
+
 def Range(min=0, max=None):
     'Matches count tokens where: min <= count <= max.'
     def init():
-        state = Bunch(count=-1)
-        return apply(state, None)
+        return apply(0, None)
 
-    def apply(state, token):
-        state.count += 1
+    def apply(count, token):
         verdict = Satisfied
-        if state.count < min:
+        if count < min:
             verdict = Continue
         elif max != None:
-            if state.count == max:
+            if count == max:
                 verdict = Matching
-            elif state.count > max:
+            elif count > max:
                 verdict = Invalid
+        return count+1, verdict
+
+    return init, apply
+
+def Ascending():
+    'Matches tokens so long the current is greater than the previous.'
+
+    def init():
+        return None, Satisfied
+
+    def apply(previous, token):
+        return token, Satisfied if previous <= token else Invalid
+
+    return init, apply
+
+def Sequence(*args):
+    'Matches each number from min to max.'
+
+    if len(args) == 1:
+        min = 0
+        max = args[0]
+        step = 1
+    elif len(args) == 2:
+        min = args[0]
+        max = args[1]
+        step = 1
+    elif len(args) == 3:
+        min = args[0]
+        max = args[1]
+        step = args[2]
+    else:
+        raise Error('Invalid number of arguments.')
+
+    def init():
+        if min < max:
+            verdict = Continue
+        elif min == max:
+            verdict = Matching
+        elif min > max:
+            verdict = Invalid
+        return min, verdict
+
+    def apply(state, token):
+        verdict = Invalid
+
+        if state == token:
+            state += step
+            if state < max:
+                verdict = Continue
+            elif state >= max:
+                verdict = Matching
+
         return state, verdict
 
     return init, apply
 
-def Unique(min=1, max=1):
-    'Matches tokens so long as each kind follows a Range constraint.'
+def Unique():
+    'Matches tokens so long as there are no repeats.'
     def init():
-        range_init, range_apply = Range(min, max)
-        starting_state, verdict = range_init()
-        state = Bunch(
-            tokens=dict(),
-            starting_state=starting_state,
-            apply=range_apply)
-        return state, verdict
+        state = dict()
+        return state, Satisfied
 
     def apply(state, token):
-        state.tokens[token], verdict = state.apply(
-            state.tokens.get(token, state.starting_state), token)
+        verdict = Invalid
+
+        if not state.has_key(token):
+            verdict = Satisfied
+            state[token] = True
+
         return state, verdict
 
     return init, apply
@@ -111,20 +163,10 @@ def Unique(min=1, max=1):
 def Alternate():
     'Matches tokens so long as they occur non-consecutively.'
     def init():
-        return Bunch(prev=None), Satisfied
-    def apply(state, token):
-        verdict = Satisfied if state.prev != token else Invalid
-        state.prev = token
-        return state, verdict
-
-def Single():
-    'Matches any one token.'
-    def init():
-        return Bunch(toggle=Matching), Continue
+        return None, Satisfied
 
     def apply(state, token):
-        verdict, state.toggle = state.toggle, Invalid
-        return state, verdict
+        return token, Satisfied if state.prev != token else Invalid
 
     return init, apply
 
@@ -167,14 +209,6 @@ def Or(*constraints):
 def Group(*constraints, **kwds):
     'Matches all constraints in any order limited by meta-constraint.'
 
-    # Associate an id with each constraint.
-    constraints = enumerate(constraints)
-
-    # If the constraints are not ordered, use an explicit list instead of
-    # a generator (lazy seq).
-    if not kwds.get('ordered', False):
-        constraints = list(constraints)
-
     # Get the meta-constraint defaulting to Any().
     meta_init, meta_apply = kwds.get('meta', Any())
 
@@ -197,7 +231,7 @@ def Group(*constraints, **kwds):
 
             if verdict & Matching:
                 # Search for new paths
-                for new_id, constraint in constraints:
+                for new_id, constraint in enumerate(constraints):
                     new_m_state, new_m_verdict = meta_apply(m_state, new_id)
                     if new_m_verdict != Invalid:
                         new_apply, initial_verdict = instance(constraint)
