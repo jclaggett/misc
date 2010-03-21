@@ -58,11 +58,12 @@ class TestBasic(ConstraintTestCase):
         self.nomatch( Null(), [1] )
 
     def testAny(self):
-        self.match( Any(), [] )
-        self.match( Any(), [1, 2, 3] )
-        self.match( Any(), [1, 2, 3] * 3 )
-        self.match( Any(), range(100) )
-        self.match( Any(), 'abcdef' )
+        c = Any()
+        self.match(c, [] )
+        self.match(c, [1, 2, 3] )
+        self.match(c, [1, 2, 3] * 3 )
+        self.match(c, range(100) )
+        self.match(c, 'abcdef' )
 
     def testMember(self):
         nine, ten = range(9), range(10)
@@ -71,7 +72,7 @@ class TestBasic(ConstraintTestCase):
 
     def testMemberRange(self):
         c = MemberRange(1,6)
-        self.match(c, [1,2,3,4,5,6,1,2,3,4,5,6])
+        self.match(c, [1,2,3,4,5,6])
         self.nomatch(c, [0])
         self.nomatch(c, [7])
 
@@ -92,10 +93,8 @@ class TestBasic(ConstraintTestCase):
 
     def testUnique(self):
         c = Unique()
-        good = 'abcdefghijklmno9231'
-        bad = 'abca'
-        self.match(c, good)
-        self.nomatch(c, bad)
+        self.match(c, 'abcdefghijklmno9231')
+        self.nomatch(c, 'abca')
 
     def testCount(self):
         c = Count(0,9)
