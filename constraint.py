@@ -1,8 +1,8 @@
 # Verdict Flags.
-Invalid   = 0 # 00 # Not matching and don't continue.
-Continue  = 1 # 01 # Not matching but continue.
-Matching  = 2 # 10 # Matching but don't continue.
-Satisfied = 3 # 11 # Matching and continue.
+Invalid   = 0b00 # Not matching and don't continue.
+Continue  = 0b01 # Not matching but continue.
+Matching  = 0b10 # Matching but don't continue.
+Satisfied = 0b11 # Matching and continue.
 
 # Utility functions that work with constraints.
 def match(constraint, tokens):
@@ -102,8 +102,8 @@ def Ascending():
 
     return init, apply
 
-def Sequence(*args):
-    'Matches each number from min to max.'
+def Count(*args):
+    'Matches each step from min to max.'
 
     if len(args) == 1:
         min = 0
@@ -222,7 +222,7 @@ def Group(*constraints, **kwds):
         for m_state, m_verdict, id, apply, verdict in paths:
 
             if verdict & Continue:
-                # Apply the token to this path
+                # Apply the token to this path.
                 new_verdict = apply(token)
 
                 if new_verdict != Invalid:
@@ -230,7 +230,7 @@ def Group(*constraints, **kwds):
                         id, apply, new_verdict))
 
             if verdict & Matching:
-                # Search for new paths
+                # Search for new paths.
                 for new_id, constraint in enumerate(constraints):
                     new_m_state, new_m_verdict = meta_apply(m_state, new_id)
                     if new_m_verdict != Invalid:
@@ -241,15 +241,27 @@ def Group(*constraints, **kwds):
                                 new_paths.append((new_m_state, new_m_verdict,
                                     new_id, new_apply, new_verdict))
 
-        # Calculate the verdict as the logical union of all path verdicts.
         final_verdict = Invalid
         for m_state, m_verdict, id, apply, verdict in new_paths:
-            final_verdict |= m_verdict
+            # First, this path will continue if either the current constraint
+            # or the meta constraint continues.
+            path_continue = (verdict & Continue) | (m_verdict & Continue)
 
-        # print 'old %d -> new %d' % (len(paths), len(new_paths))
+            # Second, this path is matching if both the current constraint and
+            # the meta constraint are matching.
+            path_matching = (verdict & Matching) & (m_verdict & Matching)
+
+            # Third, the final verdict is the logical union of each path
+            # verdict.
+            final_verdict |= path_continue | path_matching
+
         return new_paths, final_verdict
 
     return init, apply
+
+def Sequence(*constraints):
+    'Matches a sequence of constraints.'
+    return Group(*constraints, meta=Count(len(constraints)))
 
 def Attribute(name, constraint):
     'Apply constraint to the named token attribute.'

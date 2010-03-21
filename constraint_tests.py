@@ -27,7 +27,19 @@ class TestExamples(ConstraintTestCase):
         _alpha = Or(Member('_'), MemberRange('a','z'), MemberRange('A','Z'))
         _alpha_num = Or(_alpha, MemberRange('0','9'))
         first_char = And(Single(), _alpha)
-        c = Group(first_char, _alpha_num, meta=Sequence(2))
+        c = Sequence(first_char, _alpha_num)
+
+        self.match(first_char, '_')
+        self.match(first_char, 'A')
+        self.match(first_char, 'b')
+        self.nomatch(first_char, '5')
+        self.nomatch(first_char, '$')
+
+        self.match(_alpha_num, '123')
+        self.match(_alpha_num, 'abc')
+        self.nomatch(_alpha_num, '@#$')
+        self.match(_alpha_num, 'x81x2')
+        self.match(_alpha_num, '_3_1_ssa_1_')
 
         self.match(c, '_test')
         self.match(c, 'Blah')
@@ -35,7 +47,7 @@ class TestExamples(ConstraintTestCase):
         self.match(c, 'a1')
         self.match(c, '_B_2_23')
 
-        self.match(c, '12C') # Broken Example.
+        self.nomatch(c, '12C')
         self.nomatch(c, '#$asdf')
         self.nomatch(c, 'cat!')
 
@@ -85,8 +97,8 @@ class TestBasic(ConstraintTestCase):
         self.match(c, good)
         self.nomatch(c, bad)
 
-    def testSequence(self):
-        c = Sequence(0,9)
+    def testCount(self):
+        c = Count(0,9)
         self.nomatch(c, range(0,8))
         self.match(c, range(0,9))
         self.nomatch(c, range(0,9,2))
