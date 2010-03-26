@@ -4,9 +4,6 @@ from pdb import set_trace as D
 from constraint import *
 
 class ConstraintTestCase(unittest.TestCase):
-    def setUp(self):
-        pass
-
     def match(self, constraint, tokens):
         return self.assertTrue(
             match(constraint, tokens)
@@ -16,6 +13,13 @@ class ConstraintTestCase(unittest.TestCase):
         return self.assertFalse(match(constraint, tokens))
 
 class TestExamples(ConstraintTestCase):
+    def setUp(self):
+        # Define common character classes.
+        import string
+        self.letters = Member(string.ascii_letters)
+        self.digits = Member(string.digits)
+        self.punctuation = Member(string.punctuation)
+
     def testCompoundExamples(self):
         c = And(Ascending(), Unique())
         good = 'abefgz'
@@ -24,17 +28,20 @@ class TestExamples(ConstraintTestCase):
         self.nomatch(c, bad)
 
     def testName(self):
-        _alpha = Or(Member('_'), MemberRange('a','z'), MemberRange('A','Z'))
-        _alpha_num = Or(_alpha, MemberRange('0','9'))
+        _alpha = Or(Member('_'), self.letters)
+        _alpha_num = Or(_alpha, self.digits)
         first_char = And(Single(), _alpha)
         c = Sequence(first_char, _alpha_num)
 
         self.match(first_char, '_')
         self.match(first_char, 'A')
         self.match(first_char, 'b')
+        self.nomatch(first_char, '')
         self.nomatch(first_char, '5')
         self.nomatch(first_char, '$')
+        self.nomatch(first_char, 'xx')
 
+        self.match(_alpha_num, '')
         self.match(_alpha_num, '123')
         self.match(_alpha_num, 'abc')
         self.nomatch(_alpha_num, '@#$')

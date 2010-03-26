@@ -49,6 +49,7 @@ def Any():
 
 def Member(elements):
     'Matches tokens that are in elements.'
+    elements = set(elements) # Redefine elements as a set.
     def init():
         return None, Satisfied
     def apply(state, token):
@@ -97,8 +98,8 @@ def Ascending():
     def init():
         return None, Satisfied
 
-    def apply(previous, token):
-        return token, Satisfied if previous <= token else Invalid
+    def apply(state, token):
+        return token, Satisfied if state <= token else Invalid
 
     return init, apply
 
