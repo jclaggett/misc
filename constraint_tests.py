@@ -77,38 +77,35 @@ class TestBasic(ConstraintTestCase):
         self.match(Member(ten), nine)
         self.nomatch(Member(nine), ten)
 
-    def testMemberRange(self):
-        c = MemberRange(1,6)
+    def testBetween(self):
+        c = Between(1,6)
         self.match(c, [1,2,3,4,5,6])
         self.nomatch(c, [0])
         self.nomatch(c, [7])
 
-    def testRange(self):
-        c = Range(min=1,max=3)
+    def testRepeat(self):
+        c = Repeat(min=1,max=3)
         self.nomatch(c, '')
-        self.match(c, '1')
-        self.match(c, '11')
-        self.match(c, '111')
-        self.nomatch(c, '1111')
+        self.match(c, 'a')
+        self.match(c, 'ab')
+        self.match(c, 'abc')
+        self.nomatch(c, 'abcd')
 
-        c = Range(min=2,max=None)
+        c = Repeat(min=2,max=None)
         self.nomatch(c, '')
-        self.nomatch(c, '1')
-        self.match(c, '11')
-        self.match(c, '111')
-        self.match(c, '1111')
+        self.nomatch(c, 'a')
+        self.match(c, 'ab')
+        self.match(c, 'abc')
+        self.match(c, 'abcd')
 
     def testUnique(self):
         c = Unique()
         self.match(c, 'abcdefghijklmno9231')
         self.nomatch(c, 'abca')
 
-    def testCount(self):
-        c = Count(0,9)
-        self.nomatch(c, range(0,8))
-        self.match(c, range(0,9))
-        self.nomatch(c, range(0,9,2))
-        self.nomatch(c, range(10))
+    def testRange(self):
+        c = Range(3,15,2)
+        self.match(c, [3,5,7,9,11,13])
 
     def testAnd(self):
         c = And(Null())
@@ -125,14 +122,14 @@ class TestBasic(ConstraintTestCase):
         self.nomatch(c, [1])
         self.nomatch(c, [1,1])
 
-        c = And(Range(1,2), Member('abc'))
+        c = And(Repeat(1,2), Member('abc'))
         self.match(c, 'a')
         self.match(c, 'bc')
         self.nomatch(c, 'abc')
         self.nomatch(c, '')
 
     def testOr(self):
-        c = Or(Range(1,1), Range(3,4))
+        c = Or(Repeat(1,1), Repeat(3,4))
         self.nomatch(c, '')
         self.match(c, 'a')
         self.nomatch(c, 'ab')
@@ -141,17 +138,39 @@ class TestBasic(ConstraintTestCase):
         self.nomatch(c, 'abcde')
 
     def testGroup(self):
-        digits = MemberRange('0','9')
+        digits = Between('0','9')
         dashes = Member('-')
-
         digit = And(Single(), digits)
         dash = And(Single(), dashes)
 
-        areacode = And(Range(min=3, max=4), digits)
+        areacode = And(Repeat(min=3, max=4), digits)
+        self.nomatch(areacode, '')
+        self.nomatch(areacode, '1')
+        self.nomatch(areacode, '12')
         self.match(areacode, '123')
+        self.match(areacode, '1234')
 
-        phone = Group(areacode, dashes)
-        self.match(phone, '123-456-7890')
+        phone1 = Group(digits, dashes)
+        #self.match(phone1, '123-456-7890')
+
+        phone2 = Group(digit, dash)
+        #self.match(phone2, '123-456-7890')
+
+        phone3 = Group(areacode, dash)
+        self.match(phone3, '123-456-7890')
+
+        phone4 = Group(areacode, dash, meta=Alternate())
+        self.match(phone4, '123-456-7890')
+
+    def testAlternate(self):
+        c = Alternate()
+        self.match(c, '')
+        self.match(c, 'a')
+        self.match(c, 'ab')
+        self.match(c, 'abababa')
+        self.match(c, 'abcbabcabacb')
+        self.nomatch(c, 'aa')
+        self.nomatch(c, 'bacc')
 
     def testAscending(self):
         good = [1,2,2,3,3,4,5,6,7]

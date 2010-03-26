@@ -31,21 +31,22 @@ def instance(constraint):
     return wrapper, verdict
 
 # Library of constraints.
-def Null():
-    'Matches nothing.'
-    def init():
-        return None, Matching
-    def apply(state, token):
-        return state, Invalid
-    return init, apply
+
+# Trivial contratints.
 
 def Any():
     'Matches anything.'
-    def init():
-        return None, Satisfied
-    def apply(state, token):
-        return state, Satisfied
+    def init():              return None, Satisfied
+    def apply(state, token): return state, Satisfied
     return init, apply
+
+def Null():
+    'Matches nothing.'
+    def init():              return None, Matching
+    def apply(state, token): return state, Invalid
+    return init, apply
+
+# Token value constraints.
 
 def Member(elements):
     'Matches tokens that are in elements.'
@@ -56,120 +57,128 @@ def Member(elements):
         return state, Satisfied if token in elements else Invalid
     return init, apply
 
-def MemberRange(min, max):
-    'Matches tokens where: min <= token <= max.'
+def Between(min, max):
+    'Matches tokens where: min <= count <= max.'
     def init():
         return None, Satisfied
+
     def apply(state, token):
         return state, Satisfied if min <= token <= max else Invalid
-    return init, apply
-
-def Single():
-    'Matches any one token.'
-    def init():
-        return Matching, Continue
-
-    def apply(state, token):
-        return Invalid, state
-
-    return init, apply
-
-def Range(min=0, max=None):
-    'Matches count tokens where: min <= count <= max.'
-    def init():
-        return apply(0, None)
-
-    def apply(count, token):
-        verdict = Satisfied
-        if count < min:
-            verdict = Continue
-        elif max != None:
-            if count == max:
-                verdict = Matching
-            elif count > max:
-                verdict = Invalid
-        return count+1, verdict
 
     return init, apply
 
 def Ascending():
     'Matches tokens so long the current is greater than the previous.'
-
     def init():
         return None, Satisfied
-
     def apply(state, token):
         return token, Satisfied if state <= token else Invalid
-
-    return init, apply
-
-def Count(*args):
-    'Matches each step from min to max.'
-
-    if len(args) == 1:
-        min = 0
-        max = args[0]
-        step = 1
-    elif len(args) == 2:
-        min = args[0]
-        max = args[1]
-        step = 1
-    elif len(args) == 3:
-        min = args[0]
-        max = args[1]
-        step = args[2]
-    else:
-        raise Error('Invalid number of arguments.')
-
-    def init():
-        if min < max:
-            verdict = Continue
-        elif min == max:
-            verdict = Matching
-        elif min > max:
-            verdict = Invalid
-        return min, verdict
-
-    def apply(state, token):
-        verdict = Invalid
-
-        if state == token:
-            state += step
-            if state < max:
-                verdict = Continue
-            elif state >= max:
-                verdict = Matching
-
-        return state, verdict
-
-    return init, apply
-
-def Unique():
-    'Matches tokens so long as there are no repeats.'
-    def init():
-        state = dict()
-        return state, Satisfied
-
-    def apply(state, token):
-        verdict = Invalid
-
-        if not state.has_key(token):
-            verdict = Satisfied
-            state[token] = True
-
-        return state, verdict
-
     return init, apply
 
 def Alternate():
     'Matches tokens so long as they occur non-consecutively.'
     def init():
         return None, Satisfied
+    def apply(state, token):
+        return token, Satisfied if state != token else Invalid
+    return init, apply
+
+def Unique():
+    'Matches tokens so long as there are no repeats.'
+    def init():
+        return set(), Satisfied
 
     def apply(state, token):
-        return token, Satisfied if state.prev != token else Invalid
+        if token in state:
+            return state, Invalid
+        else:
+            state.add(token)
+            return state, Satisfied
 
     return init, apply
+
+def Range(*args):
+    'Matches tokens so that their values step from min to max.'
+    if   len(args) == 1: min, max, step = 0, args[0], 1
+    elif len(args) == 2: min, max, step = args[0], args[1], 1
+    elif len(args) == 3: min, max, step = args
+    else: raise Error('Too many arguments.')
+
+    def init():
+        junk, verdict = apply(min, min)
+        return min, verdict
+
+    def apply(state, token):
+        if token != state:
+            return state, Invalid
+        if token < max-step:
+            return state+step, Continue
+        else:
+            return state+step, Satisfied
+
+    return init, apply
+
+def Attribute(name, constraint):
+    '''Apply constraint to the tokens' named attribute.'''
+    def init():
+        return instance(constraint)
+    def apply(state, token):
+        return state, state(getattr(token, name))
+    return init, apply
+
+def Key(key, constraint):
+    '''Apply constraint to the tokens' keyed index.'''
+    def init():
+        return instance(constraint)
+    def apply(state, token):
+        return state, state(token[key])
+    return init, apply
+
+# Token number constraints.
+
+def Single():
+    'Matches any one token.'
+    def init():
+        return Matching, Continue
+    def apply(state, token):
+        return Invalid, state
+    return init, apply
+
+def Repeat(min=0, max=None):
+    'Matches the number of tokens where: min <= count <= max.'
+    def init():
+        return apply(0, None)
+
+    def apply(state, token):
+        if state < min:
+            return state+1, Continue
+        if max == None:
+            return state+1, Satisfied
+        if state < max:
+            return state+1, Satisfied
+        if state == max:
+            return state+1, Matching
+        if state > max:
+            return state+1, Invalid
+
+    return init, apply
+
+def Enumerate(constraint):
+    'Matches the constraint against the number of tokens (not token values).'
+    c_init, c_apply = constraint
+
+    def init():
+        c_state, c_verdict = c_init()
+        return apply((0, c_state), None)
+
+    def apply(state, token):
+        count, c_state = state
+        c_state, c_verdict = c_apply(c_state, count)
+        return (count + 1, c_state), c_verdict
+
+    return init, apply
+
+# Combining constraints.
 
 def And(*constraints):
     'Matches all constraints.'
@@ -206,6 +215,10 @@ def Or(*constraints):
         return state, verdict
 
     return init, apply
+
+def Sequence(*constraints):
+    'Matches a sequence of constraints.'
+    return Group(*constraints, meta=Range(len(constraints)))
 
 def Group(*constraints, **kwds):
     'Matches all constraints in any order limited by meta-constraint.'
@@ -258,26 +271,6 @@ def Group(*constraints, **kwds):
 
         return new_paths, final_verdict
 
-    return init, apply
-
-def Sequence(*constraints):
-    'Matches a sequence of constraints.'
-    return Group(*constraints, meta=Count(len(constraints)))
-
-def Attribute(name, constraint):
-    'Apply constraint to the named token attribute.'
-    def init():
-        return instance(constraint)
-    def apply(state, token):
-        return state, state(getattr(token, name))
-    return init, apply
-
-def Key(key, constraint):
-    'Apply constraint to the key in attribute.'
-    def init():
-        return instance(constraint)
-    def apply(state, token):
-        return state, state(token[key])
     return init, apply
 
 if __name__ == '__main__':
