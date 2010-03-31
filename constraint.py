@@ -7,7 +7,8 @@ Satisfied = 0b11 # Matching and continue.
 # Utility functions that work with constraints.
 def match(constraint, tokens):
     'Compare constraint against a list of tokens.'
-    test, verdict = instance(constraint) 
+    init, test = constraint
+    state, verdict = init()
 
     for token in tokens:
         if not verdict & Continue:
@@ -16,7 +17,7 @@ def match(constraint, tokens):
             verdict = Invalid
             break
 
-        verdict = test(token)
+        state, verdict = test(state, token)
 
     return bool(verdict & Matching)
 
@@ -121,18 +122,20 @@ def Range(*args):
 
 def Attribute(name, constraint):
     '''Apply constraint to the tokens' named attribute.'''
+    c_init, c_test = constraint
     def init():
-        return instance(constraint)
+        return c_init()
     def test(state, token):
-        return state, state(getattr(token, name))
+        return c_test(state, getattr(token, name))
     return init, test
 
 def Key(key, constraint):
     '''Apply constraint to the tokens' keyed index.'''
+    c_init, c_test = constraint
     def init():
-        return instance(constraint)
+        return c_init()
     def test(state, token):
-        return state, state(token[key])
+        return c_test(state, token[key])
     return init, test
 
 # Token number constraints.
@@ -186,16 +189,20 @@ def And(*constraints):
     def init():
         state = []
         verdict = Satisfied
-        for test, subverdict in map(instance, constraints):
-            state.append(test)
-            verdict &= subverdict
+        for c_init, c_test in constraints:
+            c_state, c_verdict = c_init()
+            state.append((c_state, c_test))
+            verdict &= c_verdict
         return state, verdict
 
     def test(state, token):
         verdict = Satisfied
-        for test in state:
-            verdict &= test(token)
-        return state, verdict
+        new_state = []
+        for c_state, c_test in state:
+            c_state, c_verdict = c_test(c_state, token)
+            new_state.append((c_state, c_test))
+            verdict &= c_verdict
+        return new_state, verdict
 
     return init, test
 
@@ -204,16 +211,20 @@ def Or(*constraints):
     def init():
         state = []
         verdict = Invalid
-        for test, subverdict in map(instance, constraints):
-            state.append(test)
-            verdict |= subverdict
+        for c_init, c_test in constraints:
+            c_state, c_verdict = c_init()
+            state.append((c_state, c_test))
+            verdict |= c_verdict
         return state, verdict
 
     def test(state, token):
         verdict = Invalid
-        for test in state:
-            verdict |= test(token)
-        return state, verdict
+        new_state = []
+        for c_state, c_test in state:
+            c_state, c_verdict = c_test(c_state, token)
+            new_state.append((c_state, c_test))
+            verdict |= c_verdict
+        return new_state, verdict
 
     return init, test
 
@@ -221,56 +232,58 @@ def Sequence(*constraints):
     'Matches a sequence of constraints.'
     return Group(*constraints, meta=Range(len(constraints)))
 
+from pdb import set_trace as D
+
 def Group(*constraints, **kwds):
     'Matches all constraints in any order limited by meta-constraint.'
 
     # Get the meta-constraint defaulting to Any().
-    meta_init, meta_test = kwds.get('meta', Any())
+    m_init, m_test = kwds.get('meta', Any())
 
     def init():
-        m_state, m_verdict = meta_init()
-        return [ (m_state, m_verdict, None, None, Matching) ], m_verdict
+        m_state, m_verdict = m_init()
+        return [ (m_state, m_verdict, None, Matching, None, None) ], m_verdict
 
-    def test(paths, token):
+    def test(state, token):
         # Calculate the new state (the list of candidate paths).
-        new_paths = []
-        for m_state, m_verdict, id, test, verdict in paths:
+        new_state = []
+        for m_state, m_verdict, c_state, c_verdict, c_test, c_id in state:
 
-            if verdict & Continue:
+            if c_verdict & Continue:
                 # Apply the token to this path.
-                new_verdict = test(token)
+                new_c_state, new_c_verdict = c_test(c_state, token)
 
-                if new_verdict != Invalid:
-                    new_paths.append((m_state, m_verdict,
-                        id, test, new_verdict))
+                if new_c_verdict != Invalid:
+                    new_state.append((m_state, m_verdict,
+                        new_c_state, new_c_verdict, c_test, c_id))
 
-            if verdict & Matching:
+            if c_verdict & Matching:
                 # Search for new paths.
-                for new_id, constraint in enumerate(constraints):
-                    new_m_state, new_m_verdict = meta_test(m_state, new_id)
+                for new_c_id, (new_c_init,new_c_test) in enumerate(constraints):
+                    new_m_state, new_m_verdict = m_test(m_state, new_c_id)
                     if new_m_verdict != Invalid:
-                        new_test, initial_verdict = instance(constraint)
-                        if initial_verdict & Continue:
-                            new_verdict = new_test(token)
-                            if new_verdict != Invalid:
-                                new_paths.append((new_m_state, new_m_verdict,
-                                    new_id, new_test, new_verdict))
+                        new_c_state, new_c_verdict = new_c_init()
+                        if new_c_verdict & Continue:
+                            new_c_state, new_c_verdict = new_c_test(new_c_state, token)
+                            if new_c_verdict != Invalid:
+                                new_state.append((new_m_state, new_m_verdict,
+                                    new_c_state, new_c_verdict, new_c_test, new_c_id))
 
         final_verdict = Invalid
-        for m_state, m_verdict, id, test, verdict in new_paths:
+        for m_state, m_verdict, c_state, c_verdict, c_test, c_id in new_state:
             # First, this path will continue if either the current constraint
             # or the meta constraint continues.
-            path_continue = (verdict & Continue) | (m_verdict & Continue)
+            path_continue = (c_verdict & Continue) | (m_verdict & Continue)
 
             # Second, this path is matching if both the current constraint and
             # the meta constraint are matching.
-            path_matching = (verdict & Matching) & (m_verdict & Matching)
+            path_matching = (c_verdict & Matching) & (m_verdict & Matching)
 
             # Third, the final verdict is the logical union of each path
             # verdict.
             final_verdict |= path_continue | path_matching
 
-        return new_paths, final_verdict
+        return new_state, final_verdict
 
     return init, test
 

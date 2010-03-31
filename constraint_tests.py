@@ -141,7 +141,12 @@ class TestBasic(ConstraintTestCase):
         digits = Between('0','9')
         dashes = Member('-')
         digit = And(Single(), digits)
+
         dash = And(Single(), dashes)
+        self.nomatch(dash, '')
+        self.match(dash, '-')
+        self.nomatch(dash, '--')
+        self.nomatch(dash, 'x')
 
         areacode = And(Repeat(min=3, max=4), digits)
         self.nomatch(areacode, '')
@@ -151,10 +156,10 @@ class TestBasic(ConstraintTestCase):
         self.match(areacode, '1234')
 
         phone1 = Group(digits, dashes)
-        #self.match(phone1, '123-456-7890')
+        self.match(phone1, '123-456-7890')
 
         phone2 = Group(digit, dash)
-        #self.match(phone2, '123-456-7890')
+        self.match(phone2, '123-456-7890')
 
         phone3 = Group(areacode, dash)
         self.match(phone3, '123-456-7890')
