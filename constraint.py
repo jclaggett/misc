@@ -1,8 +1,12 @@
-# Verdict Flags.
-Invalid   = 0b00 # Not matching and don't continue.
-Continue  = 0b01 # Not matching but continue.
-Matching  = 0b10 # Matching but don't continue.
-Satisfied = 0b11 # Matching and continue.
+# Debugging.
+from pdb import set_trace as D
+
+# Verdict Sets.
+ContinueFlag, MatchingFlag = 1, 2
+Invalid = frozenset([])
+Continue = frozenset([ContinueFlag])
+Matching = frozenset([MatchingFlag])
+Satisfied = frozenset([ContinueFlag, MatchingFlag])
 
 # Utility functions that work with constraints.
 def match(constraint, tokens):
@@ -11,7 +15,7 @@ def match(constraint, tokens):
     state, verdict = init()
 
     for token in tokens:
-        if not verdict & Continue:
+        if ContinueFlag not in verdict:
             # The previous verdict indicated no continue so this
             # token stream can never match.
             verdict = Invalid
@@ -19,7 +23,7 @@ def match(constraint, tokens):
 
         state, verdict = test(state, token)
 
-    return bool(verdict & Matching)
+    return MatchingFlag in verdict
 
 # XXX This is not a pure function so try not to use it.
 def instance(constraint):
@@ -38,13 +42,13 @@ def instance(constraint):
 
 def Any():
     'Matches anything.'
-    def init():              return None, Satisfied
+    def init():             return None, Satisfied
     def test(state, token): return state, Satisfied
     return init, test
 
 def Null():
     'Matches nothing.'
-    def init():              return None, Matching
+    def init():             return None, Matching
     def test(state, token): return state, Invalid
     return init, test
 
@@ -123,20 +127,16 @@ def Range(*args):
 def Attribute(name, constraint):
     '''Apply constraint to the tokens' named attribute.'''
     c_init, c_test = constraint
-    def init():
-        return c_init()
     def test(state, token):
         return c_test(state, getattr(token, name))
-    return init, test
+    return c_init, test
 
 def Key(key, constraint):
     '''Apply constraint to the tokens' keyed index.'''
     c_init, c_test = constraint
-    def init():
-        return c_init()
     def test(state, token):
         return c_test(state, token[key])
-    return init, test
+    return c_init, test
 
 # Token number constraints.
 
@@ -232,8 +232,6 @@ def Sequence(*constraints):
     'Matches a sequence of constraints.'
     return Group(*constraints, meta=Range(len(constraints)))
 
-from pdb import set_trace as D
-
 def Group(*constraints, **kwds):
     'Matches all constraints in any order limited by meta-constraint.'
 
@@ -249,7 +247,7 @@ def Group(*constraints, **kwds):
         new_state = []
         for m_state, m_verdict, c_state, c_verdict, c_test, c_id in state:
 
-            if c_verdict & Continue:
+            if ContinueFlag in c_verdict:
                 # Apply the token to this path.
                 new_c_state, new_c_verdict = c_test(c_state, token)
 
@@ -257,13 +255,13 @@ def Group(*constraints, **kwds):
                     new_state.append((m_state, m_verdict,
                         new_c_state, new_c_verdict, c_test, c_id))
 
-            if c_verdict & Matching:
+            if MatchingFlag in c_verdict:
                 # Search for new paths.
                 for new_c_id, (new_c_init,new_c_test) in enumerate(constraints):
                     new_m_state, new_m_verdict = m_test(m_state, new_c_id)
                     if new_m_verdict != Invalid:
                         new_c_state, new_c_verdict = new_c_init()
-                        if new_c_verdict & Continue:
+                        if ContinueFlag in new_c_verdict:
                             new_c_state, new_c_verdict = new_c_test(new_c_state, token)
                             if new_c_verdict != Invalid:
                                 new_state.append((new_m_state, new_m_verdict,
@@ -273,11 +271,11 @@ def Group(*constraints, **kwds):
         for m_state, m_verdict, c_state, c_verdict, c_test, c_id in new_state:
             # First, this path will continue if either the current constraint
             # or the meta constraint continues.
-            path_continue = (c_verdict & Continue) | (m_verdict & Continue)
+            path_continue = Continue & (c_verdict | m_verdict)
 
             # Second, this path is matching if both the current constraint and
             # the meta constraint are matching.
-            path_matching = (c_verdict & Matching) & (m_verdict & Matching)
+            path_matching = Matching & (c_verdict & m_verdict)
 
             # Third, the final verdict is the logical union of each path
             # verdict.
