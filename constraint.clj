@@ -1,5 +1,5 @@
 (ns misc.constraint
-  (:refer-clojure :exclude [range])
+  (:refer-clojure :exclude [range repeat])
   (:use [clojure.core :as core :only []]))
 
 ;; Verdict Flags
@@ -22,39 +22,86 @@
 ;; Should this always return true/false?  Always :matching/nil? Or is this ok?
 (defn match
   "Compare constraint against a list of tokens."
-  [constraint tokens]
-  (let [[wrapper verdict] (instance constraint)]
-    (loop [verdict verdict, tokens tokens]
-      (if (empty? tokens)
-        (:matching verdict)
-        (if (:continue verdict)
-          (recur (wrapper (first tokens)) (next tokens))
-          ; The previous verdict indicated no continue so this
-          ; token stream can never match.
-          false)))))
+  [[init test] tokens]
+  (loop [[state, verdict] (init), tokens tokens]
+    (if (empty? tokens)
+      (:matching verdict)
+      (if (:continue verdict)
+        (recur (test (first tokens)), (next tokens))
+        ; The previous verdict indicated no continue so this
+        ; token stream can never match.
+        false))))
 
 
+; Constraint Library.
+
+; Trivial constraints.
 
 (defn any []
   (fn any-fn
     ([]            [nil Satisfied])
     ([state token] [state Satisfied])))
 
-(defn member-range [min max]
-  (fn member-range-fn
-    ([] [nil Satisfied])
+(defn null []
+  (fn null-fn
+    ([]            [nil Matching])
+    ([state token] [state Invalid])))
+
+; Token value constraints.
+
+(defn member
+  "Matches tokens that are in elements."
+  [input_elements]
+  (let [elements (set input_elements)]
+    (fn member-fn
+      ([]            [nil Satisfied])
+      ([state token] [
+        state
+        (if (contains? elements token) Satisfied Invalid)]))))
+
+(defn between
+  "Matches tokens where: min <= count <= max."
+  [min max]
+  (fn between-fn
+    ([]            [nil Satisfied])
     ([state token] [state (if (<= min token max) Satisfied Invalid)])))
+
+(defn ascending
+  "Matches tokens so long the current is greater than the previous."
+  []
+  (fn ascending-fn
+    ([] [nil Satisfied])
+    ([state token] [token (if (or (nil? state) (<= state token))
+      Satisfied Invalid)])))
+
+(defn alternate
+  "Matches tokens so long as they occur non-consecutively."
+  []
+  (fn alternate-fn
+    ([] [nil Satisfied])
+    ([state token] [token (if (= state token) Invalid Satisfied)])))
+
+(defn unique
+  "Matches tokens so long as there are no repeats."
+  []
+  (fn unique-fn
+    ([] [#{} Satisfied])
+    ([state token] [
+      (conj state token)
+      (if (contains? state token) Invalid Satisfied)])))
+
+; Token number constraints.
 
 (defn single []
   (fn single-fn
     ([] [Matching Continue])
     ([state token] [Invalid state])))
 
-(defn between
-  "Matched count tokens where: min <= count <= max."
+(defn repeat
+  "Matches count tokens where: min <= count <= max."
   [min max]
-  (fn between-fn
-    ([] (between-fn 0 nil))
+  (fn repeat-fn
+    ([] (repeat-fn 0 nil))
     ([count token]
      (cond
        (< count min) [(inc count) Continue]
@@ -64,8 +111,7 @@
        :else         [(inc count) Satisfied]))))
 
 
-
-
+; Unit testing.
 
 (defn assert-match [constraint tokens]
   (assert (match constraint tokens)))
