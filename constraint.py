@@ -258,13 +258,22 @@ def Group(*constraints, **kwds):
                 # Search for new paths.
                 for new_c_id, (new_c_init,new_c_test) in enumerate(constraints):
                     new_m_state, new_m_verdict = m_test(m_state, new_c_id)
-                    if new_m_verdict != Invalid:
-                        new_c_state, new_c_verdict = new_c_init()
-                        if new_c_verdict >= Continue:
-                            new_c_state, new_c_verdict = new_c_test(new_c_state, token)
-                            if new_c_verdict != Invalid:
-                                new_state.append((new_m_state, new_m_verdict,
-                                    new_c_state, new_c_verdict, new_c_test, new_c_id))
+                    if new_m_verdict == Invalid: continue
+
+                    # Optimization: If the current constraint has no state, it
+                    # will match as many tokens as possible so we don't need to
+                    # add a new path with this constraint. This needs to be
+                    # generalized in the future. Maybe a modified verdict?
+                    if new_c_id == c_id and c_state == None: continue
+
+                    new_c_state, new_c_verdict = new_c_init()
+                    if not new_c_verdict >= Continue: continue
+
+                    new_c_state, new_c_verdict = new_c_test(new_c_state, token)
+                    if new_c_verdict == Invalid: continue
+
+                    new_state.append((new_m_state, new_m_verdict,
+                        new_c_state, new_c_verdict, new_c_test, new_c_id))
 
         final_verdict = Invalid
         for m_state, m_verdict, c_state, c_verdict, c_test, c_id in new_state:
