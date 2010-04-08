@@ -24,17 +24,6 @@ def match(constraint, tokens):
 
     return verdict >= Matching
 
-# XXX This is not a pure function so try not to use it.
-def instance(constraint):
-    'Create a new instance of the constraint and manage/hide the state.'
-    init, test = constraint
-    state, verdict = init()
-    wrapped = dict(state=state)
-    def wrapper(token):
-        wrapped['state'], verdict = test(wrapped['state'], token)
-        return verdict
-    return wrapper, verdict
-
 # Library of constraints.
 
 # Trivial contratints.
@@ -77,7 +66,7 @@ def Ascending():
     def init():
         return None, Satisfied
     def test(state, token):
-        return token, Satisfied if state <= token else Invalid
+        return (token, Satisfied) if state <= token else (state, Invalid)
     return init, test
 
 def Alternate():
@@ -85,7 +74,7 @@ def Alternate():
     def init():
         return None, Satisfied
     def test(state, token):
-        return token, Satisfied if state != token else Invalid
+        return (token, Satisfied) if state != token else (state, Invalid)
     return init, test
 
 def Unique():
@@ -142,9 +131,9 @@ def Key(key, constraint):
 def Single():
     'Matches any one token.'
     def init():
-        return Matching, Continue
+        return True, Continue
     def test(state, token):
-        return Invalid, state
+        return (False, Matching) if state else (state, Invalid)
     return init, test
 
 def Repeat(min=0, max=None):
@@ -162,7 +151,7 @@ def Repeat(min=0, max=None):
         if state == max:
             return state+1, Matching
         if state > max:
-            return state+1, Invalid
+            return state, Invalid
 
     return init, test
 
@@ -177,7 +166,10 @@ def Enumerate(constraint):
     def test(state, token):
         count, c_state = state
         c_state, c_verdict = c_test(c_state, count)
-        return (count + 1, c_state), c_verdict
+        if c_verdict == Invalid:
+            return state, Invalid
+        else:
+            return (count + 1, c_state), c_verdict
 
     return init, test
 
@@ -201,7 +193,10 @@ def And(*constraints):
             c_state, c_verdict = c_test(c_state, token)
             new_state.append((c_state, c_test))
             verdict &= c_verdict
-        return new_state, verdict
+        if verdict == Invalid:
+            return state, Invalid
+        else:
+            return new_state, verdict
 
     return init, test
 
@@ -223,7 +218,10 @@ def Or(*constraints):
             c_state, c_verdict = c_test(c_state, token)
             new_state.append((c_state, c_test))
             verdict |= c_verdict
-        return new_state, verdict
+        if verdict == Invalid:
+            return state, Invalid
+        else:
+            return new_state, verdict
 
     return init, test
 
@@ -257,14 +255,15 @@ def Group(*constraints, **kwds):
             if c_verdict >= Matching:
                 # Search for new paths.
                 for new_c_id, (new_c_init,new_c_test) in enumerate(constraints):
-                    new_m_state, new_m_verdict = m_test(m_state, new_c_id)
-                    if new_m_verdict == Invalid: continue
 
                     # Optimization: If the current constraint has no state, it
                     # will match as many tokens as possible so we don't need to
                     # add a new path with this constraint. This needs to be
                     # generalized in the future. Maybe a modified verdict?
                     if new_c_id == c_id and c_state == None: continue
+
+                    new_m_state, new_m_verdict = m_test(m_state, new_c_id)
+                    if new_m_verdict == Invalid: continue
 
                     new_c_state, new_c_verdict = new_c_init()
                     if not new_c_verdict >= Continue: continue
@@ -289,7 +288,10 @@ def Group(*constraints, **kwds):
             # verdict.
             final_verdict |= path_continue | path_matching
 
-        return new_state, final_verdict
+        if final_verdict == Invalid:
+            return state, Invalid # Be sure to return the original state if Invalid.
+        else:
+            return new_state, final_verdict
 
     return init, test
 
