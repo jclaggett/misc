@@ -2,11 +2,10 @@
 from pdb import set_trace as D
 
 # Verdict Sets.
-ContinueFlag, MatchingFlag = 1, 2
-Invalid = frozenset([])
-Continue = frozenset([ContinueFlag])
-Matching = frozenset([MatchingFlag])
-Satisfied = frozenset([ContinueFlag, MatchingFlag])
+Invalid = frozenset()
+Continue = frozenset([1])
+Matching = frozenset([2])
+Satisfied = Continue | Matching
 
 # Utility functions that work with constraints.
 def match(constraint, tokens):
@@ -15,7 +14,7 @@ def match(constraint, tokens):
     state, verdict = init()
 
     for token in tokens:
-        if ContinueFlag not in verdict:
+        if not verdict >= Continue:
             # The previous verdict indicated no continue so this
             # token stream can never match.
             verdict = Invalid
@@ -23,7 +22,7 @@ def match(constraint, tokens):
 
         state, verdict = test(state, token)
 
-    return MatchingFlag in verdict
+    return verdict >= Matching
 
 # XXX This is not a pure function so try not to use it.
 def instance(constraint):
@@ -247,7 +246,7 @@ def Group(*constraints, **kwds):
         new_state = []
         for m_state, m_verdict, c_state, c_verdict, c_test, c_id in state:
 
-            if ContinueFlag in c_verdict:
+            if c_verdict >= Continue:
                 # Apply the token to this path.
                 new_c_state, new_c_verdict = c_test(c_state, token)
 
@@ -255,13 +254,13 @@ def Group(*constraints, **kwds):
                     new_state.append((m_state, m_verdict,
                         new_c_state, new_c_verdict, c_test, c_id))
 
-            if MatchingFlag in c_verdict:
+            if c_verdict >= Matching:
                 # Search for new paths.
                 for new_c_id, (new_c_init,new_c_test) in enumerate(constraints):
                     new_m_state, new_m_verdict = m_test(m_state, new_c_id)
                     if new_m_verdict != Invalid:
                         new_c_state, new_c_verdict = new_c_init()
-                        if ContinueFlag in new_c_verdict:
+                        if new_c_verdict >= Continue:
                             new_c_state, new_c_verdict = new_c_test(new_c_state, token)
                             if new_c_verdict != Invalid:
                                 new_state.append((new_m_state, new_m_verdict,
