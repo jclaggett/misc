@@ -24,6 +24,22 @@ def match(constraint, tokens):
 
     return verdict >= Matching
 
+def capture(model, tokens):
+    init, test, model = model
+    state, verdict = init()
+
+    for token in tokens:
+        if not verdict >= Continue:
+            # The previous verdict indicated no continue so this
+            # token stream can never match.
+            verdict = Invalid
+            break
+
+        state, verdict = test(state, token)
+
+    if verdict >= Matching:
+        return model(state)
+
 # Library of constraints.
 
 # Trivial contratints.
@@ -294,6 +310,30 @@ def Group(*constraints, **kwds):
             return new_state, final_verdict
 
     return init, test
+
+# Model constraints.
+# These augment the constraint functions with a model function.
+
+def Buffer(constraint):
+    c_init, c_test = constraint
+    
+    def init():
+        c_state, c_verdict = c_init()
+        return (tuple(), c_state), c_verdict
+
+    def test(state, token):
+        buffer, c_state = state
+        c_state, c_verdict = c_test(c_state, token)
+        if c_verdict == Invalid:
+            return state, Invalid
+        else:
+            return (buffer + (token,), c_state), c_verdict
+
+    def model(state):
+        buffer, c_state = state
+        return buffer
+
+    return init, test, model
 
 if __name__ == '__main__':
     from constraint_tests import *
